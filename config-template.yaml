@@ -1,0 +1,120 @@
+apiVersion: carto.run/v1alpha1
+kind: ClusterConfigTemplate
+metadata:
+  name: config-template
+spec:
+  configPath: .data
+  healthRule:
+    alwaysHealthy: {}
+  lifecycle: mutable
+  params:
+  - default: true
+    name: include_kapp_config
+  ytt: |
+    #@ load("@ytt:data", "data")
+    #@ load("@ytt:yaml", "yaml")
+
+    #@ def merge_labels(fixed_values):
+    #@   labels = {}
+    #@   if hasattr(data.values.workload.metadata, "labels"):
+    #@     exclusions = ["kapp.k14s.io/app", "kapp.k14s.io/association"]
+    #@     for k,v in dict(data.values.workload.metadata.labels).items():
+    #@       if k not in exclusions:
+    #@         labels[k] = v
+    #@       end
+    #@     end
+    #@   end
+    #@   labels.update(fixed_values)
+    #@   return labels
+    #@ end
+
+    #@ def delivery():
+    apiVersion: serving.knative.dev/v1
+    kind: Service
+    metadata:
+      name: #@ data.values.workload.metadata.name
+      #! annotations NOT merged because knative annotations would be invalid here
+      annotations:
+        ootb.apps.tanzu.vmware.com/servicebinding-workload: "true"
+        ootb.apps.tanzu.vmware.com/apidescriptor-ref: "true"
+        kapp.k14s.io/change-rule: "upsert after upserting servicebinding.io/ServiceBindings"
+      labels: #@ merge_labels({ "app.kubernetes.io/component": "run", "carto.run/workload-name": data.values.workload.metadata.name })
+    spec:
+      template: #@ data.values.config
+    #@ end
+
+    #@ def kapp_config():
+    apiVersion: kapp.k14s.io/v1alpha1
+    kind: Config
+    rebaseRules:
+    - path:
+      - metadata
+      - annotations
+      - serving.knative.dev/creator
+      type: copy
+      sources:
+      - new
+      - existing
+      resourceMatchers:
+      - apiVersionKindMatcher:
+          apiVersion: serving.knative.dev/v1
+          kind: Service
+    - path:
+      - metadata
+      - annotations
+      - serving.knative.dev/lastModifier
+      type: copy
+      sources:
+      - new
+      - existing
+      resourceMatchers:
+      - apiVersionKindMatcher:
+          apiVersion: serving.knative.dev/v1
+          kind: Service
+    - path:
+      - spec
+      - traffic
+      type: copy
+      sources:
+      - existing
+      - new
+      resourceMatchers:
+      - apiVersionKindMatcher:
+          apiVersion: serving.knative.dev/v1
+          kind: Service
+    waitRules:
+    - resourceMatchers:
+      - apiVersionKindMatcher:
+          apiVersion: serving.knative.dev/v1
+          kind: Service
+      conditionMatchers:
+      - type: Ready
+        status: "True"
+        success: true
+      - type: Ready
+        status: "False"
+        failure: true
+    ownershipLabelRules:
+    - path:
+      - spec
+      - template
+      - metadata
+      - labels
+      resourceMatchers:
+      - apiVersionKindMatcher:
+          apiVersion: serving.knative.dev/v1
+          kind: Service
+
+    #@ end
+
+    ---
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: #@ data.values.workload.metadata.name
+      labels: #@ merge_labels({ "app.kubernetes.io/component": "config" })
+    data:
+      delivery.yml: #@ yaml.encode(delivery())
+      #@ if data.values.params.include_kapp_config == True:
+      kapp-config.yml: #@ yaml.encode(kapp_config())
+      #@ end

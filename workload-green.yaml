@@ -1,0 +1,14 @@
+---
+apiVersion: carto.run/v1alpha1
+kind: Workload
+metadata:
+  name: go-app
+  labels:
+    app.kubernetes.io/part-of: go-app
+    apps.tanzu.vmware.com/workload-type: web
+spec:
+  image: ghcr.io/knative/helloworld-go@sha256:7a45274faa5e904537a22b7e7aa85b8d75a08b748fbdef7f9160dc88f91cada7
+  env:
+  - name: TARGET
+    value: Green
+

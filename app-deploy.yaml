@@ -1,0 +1,137 @@
+apiVersion: carto.run/v1alpha1
+kind: ClusterDeploymentTemplate
+metadata:
+  name: app-deploy
+spec:
+  healthRule:
+    multiMatch:
+      healthy:
+        matchConditions:
+        - status: "True"
+          type: ReconcileSucceeded
+      unhealthy:
+        matchFields:
+        - key: status.conditions[?(@.type=="ReconcileFailed")].status
+          messagePath: .status.usefulErrorMessage
+          operator: In
+          values:
+          - "True"
+  lifecycle: mutable
+  observedCompletion:
+    failed:
+      key: .status.conditions[?(@.type=="ReconcileSucceeded")].status
+      value: "False"
+    succeeded:
+      key: .status.conditions[?(@.type=="ReconcileSucceeded")].status
+      value: "True"
+  params:
+  - default: default
+    name: serviceAccount
+  ytt: |
+    #@ load("@ytt:data", "data")
+    #@ load("@ytt:yaml", "yaml")
+    #@ load("@ytt:assert", "assert")
+
+    #@ def merge_labels(fixed_values):
+    #@   labels = {}
+    #@   if hasattr(data.values.deliverable.metadata, "labels"):
+    #@     exclusions = ["kapp.k14s.io/app", "kapp.k14s.io/association"]
+    #@     for k,v in dict(data.values.deliverable.metadata.labels).items():
+    #@       if k not in exclusions:
+    #@         labels[k] = v
+    #@       end
+    #@     end
+    #@   end
+    #@   labels.update(fixed_values)
+    #@   return labels
+    #@ end
+
+    #@ def kapp_config():
+    apiVersion: kapp.k14s.io/v1alpha1
+    kind: Config
+    rebaseRules:
+    - path:
+      - metadata
+      - annotations
+      - serving.knative.dev/creator
+      type: copy
+      sources:
+      - new
+      - existing
+      resourceMatchers:
+      - apiVersionKindMatcher:
+          apiVersion: serving.knative.dev/v1
+          kind: Service
+    - path:
+      - metadata
+      - annotations
+      - serving.knative.dev/lastModifier
+      type: copy
+      sources:
+      - new
+      - existing
+      resourceMatchers:
+      - apiVersionKindMatcher:
+          apiVersion: serving.knative.dev/v1
+          kind: Service
+    - path:
+      - spec
+      - traffic
+      type: copy
+      sources:
+      - existing
+      - new
+      resourceMatchers:
+      - apiVersionKindMatcher:
+          apiVersion: serving.knative.dev/v1
+          kind: Service
+    waitRules:
+    - resourceMatchers:
+      - apiVersionKindMatcher:
+          apiVersion: serving.knative.dev/v1
+          kind: Service
+      conditionMatchers:
+      - type: Ready
+        status: "True"
+        success: true
+      - type: Ready
+        status: "False"
+        failure: true
+    ownershipLabelRules:
+    - path:
+      - spec
+      - template
+      - metadata
+      - labels
+      resourceMatchers:
+      - apiVersionKindMatcher:
+          apiVersion: serving.knative.dev/v1
+          kind: Service
+
+    #@ end
+
+    ---
+    apiVersion: kappctrl.k14s.io/v1alpha1
+    kind: App
+    metadata:
+      name: #@ data.values.deliverable.metadata.name
+      labels: #@ merge_labels({ "app.kubernetes.io/component": "deploy" })
+    spec:
+      syncPeriod: 10m0s
+      serviceAccountName: #@ data.values.params.serviceAccount
+      fetch:
+        - http:
+            url: #@ data.values.deployment.url or assert.fail("missing required deployment config url")
+            #@ if hasattr(data.values.deliverable.spec.source, "subPath"):
+            subPath: #@ data.values.deliverable.spec.source.subPath
+            #@ elif hasattr(data.values.params, "gitops_sub_path"):
+            subPath: #@ data.values.params.gitops_sub_path
+            #@ end
+        - inline:
+            paths:
+              config.yml: #@ yaml.encode(kapp_config())
+      template:
+        - ytt: {}
+        - kbld: {}
+      deploy:
+        - kapp: {}
