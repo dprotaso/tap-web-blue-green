@@ -2,6 +2,9 @@
 
 #### Installation of custom templates
 
+Note: this is following the steps outlined in the TAP Documents
+https://docs.vmware.com/en/VMware-Tanzu-Application-Platform/1.11/tap/scc-authoring-supply-chains.html#modifying-an-out-of-the-box-supply-template-4
+
 1. Update your TAP values to exclude some default templates
 
 ```yaml
