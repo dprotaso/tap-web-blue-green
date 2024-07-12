@@ -27,6 +27,23 @@ $ kubectl get clusterconfigtemplates.carto.run config-template
 kubectl apply -f app-deploy.yaml -f config-template.yaml
 ```
 
+The custom configs have an update kapp config for Knative workloads. We include an additional rebaseRule so that kapp doesn't touch traffic block unless it's set explicitly.
+
+```yaml
+rebaseRules:
+- path:
+  - spec
+  - traffic
+  type: copy
+  sources:
+  - new
+  - existing
+  resourceMatchers:
+  - apiVersionKindMatcher:
+      apiVersion: serving.knative.dev/v1
+      kind: Service
+``
+
 #### Create the first workload wait for it to succeed
 
 ```sh
@@ -37,7 +54,10 @@ $ tanzu apps workload get go-app
 $ kubectl get kservice 
 ```
 
-#### Pin traffic to the first revision
+#### Pin traffic to the first Revision
+
+Now manipulating the `spec.traffic` of the Knative Service directly.
+See the Knative documentation to understand the details https://knative.dev/docs/getting-started/first-traffic-split/
 
 ```sh
 $ kubectl patch kservice go-app --type "merge" -p '{

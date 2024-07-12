@@ -76,8 +76,8 @@ spec:
       - traffic
       type: copy
       sources:
-      - existing
       - new
+      - existing
       resourceMatchers:
       - apiVersionKindMatcher:
           apiVersion: serving.knative.dev/v1
